@@ -58,6 +58,8 @@ bool in_shadow(Point3D pt, Vector3D dir, int current, Sphere3D sphere[], int cou
    return false;
 }
 
+
+// Give each sphere a random position and radius
 void initializeSpheres(){
    for (int s=0; s<SPHERES; s++)
    {
@@ -145,18 +147,19 @@ void ray_trace()
          if (mode == "phong")
          {
             // Check to see if in shadow 
-            if (in_shadow(closest_p, light_dir, closest, sphere, SPHERES))
+            bool isInShadow = in_shadow(closest_p, light_dir, closest, sphere, SPHERES);
+            if (isInShadow)
                shader.SetObject(color[closest], 0.4, 0.0, 0.0, 1);
             else
                shader.SetObject(color[closest], 0.4, 0.4, 0.4, 10);
 
 
 
+            //-------------------
+            // Reflection stuff 
+            //-------------------
 
 
-
-            // Cast ray in ideal reflection direction
-            // Sorry for the ugly variable names
             // First convert the camera->point ray to a vector
             Vector3D cameraToPoint;
             float cx, cy, cz;
@@ -165,44 +168,39 @@ void ray_trace()
             cz = closest_p.pz - camera.pz;
             cameraToPoint.set(cx, cy, cz);
 
-            // Calculate the ideal reflection
+            // Calculate the ideal reflection from the point where the camera vector hits the sphere
             Vector3D reflectionVector;
             Vector3D surfaceNormal = closest_n;
-            Point3D intersectionPoint = closest_p;
             float dotProduct = -2 * cameraToPoint.dot(surfaceNormal);
             surfaceNormal.mult(dotProduct);
             cameraToPoint.add(surfaceNormal);
             reflectionVector = cameraToPoint;
 
-            // Convert to ray
+            // Convert it to a ray
             Ray3D reflectionRay;
             reflectionRay.set(closest_p, reflectionVector);
 
-            // See if the reflection intersects any spheres
-            int closest = -1;
+            
+            int closestR = -1;
             Point3D pR, closest_pR;
             Vector3D nR;
             closest_pR.set(0,0,ZDIM);
-
             ColorRGB reflectedColor;
 
             bool sphereReflectionExists = false;
 
+            // See if the reflection ray intersects any spheres
             for (int s=0; s<SPHERES; s++)
             {
-               if ((sphere[s].get_intersection(reflectionRay, pR, nR)) && (pR.pz < closest_pR.pz))
+               if (sphere[s].get_intersection(reflectionRay, pR, nR) && s != closest)
                {
-                  closest = s;
+                  closestR = s;
                   closest_pR = pR;
 
                   sphereReflectionExists = true;
-
-                  shader.GetShade(pR, nR, reflectedColor);
+                  break;
                }
             }
-
-            
-
 
 
 
@@ -210,12 +208,14 @@ void ray_trace()
             ColorRGB pixel;
             shader.GetShade(closest_p, closest_n, pixel);
 
-            // If the reflection vector hit any spheres, add the color
+            // If the reflection vector hit any spheres, add a less intense version of the sphere's color
             if(sphereReflectionExists){
-               // Ks should probably be a const or something
-               // But 0.4 is what was used above
-               reflectedColor.mult(0.4);
-               pixel.add(reflectedColor);
+               reflectedColor = color[closestR];
+               if(!isInShadow){
+                  reflectedColor.mult(0.1);
+                  pixel.add(reflectedColor);
+               }
+               
             }
 
             image[y][x][0] = pixel.R;
@@ -226,15 +226,20 @@ void ray_trace()
    }
 }
 
+
+
 // Callback function for moving the spheres every second
 void moveSpheres(int){
    
    for (int s=0; s<SPHERES; s++)
    {
       // Generate random values to update the sphere's locations by
-      float cx = myrand(-0.2, 0.2);
-      float cy = myrand(-0.2, 0.2);
-      float cz = myrand(-0.4, 0.8);
+      // Check to make sure the center doesn't go offscreen
+      float cx = myrand(-0.3, 0.3);
+         if(sphere[s].center.px + cx > 2 || sphere[s].center.px + cx < -2) cx *= -1;
+      float cy = myrand(-0.3, 0.3);
+         if(sphere[s].center.py + cy > 2 || sphere[s].center.py + cy < -2) cy *= -1;
+      float cz = myrand(-0.3, 0.3);
       Point3D center;
       center.set(sphere[s].center.px + cx, sphere[s].center.py + cy, sphere[s].center.pz + cz);
       sphere[s].set(center, sphere[s].radius);
@@ -242,11 +247,9 @@ void moveSpheres(int){
 
    // Do ray tracing on the new spheres
    ray_trace();
-   
-   
 
    glutPostRedisplay();
-   glutTimerFunc(1000, moveSpheres, 0);
+   glutTimerFunc(100, moveSpheres, 0);
 }
  
 //---------------------------------------
@@ -331,7 +334,7 @@ int main(int argc, char *argv[])
    // Specify callback function
    glutDisplayFunc(display);
    glutKeyboardFunc(keyboard);
-   glutTimerFunc(1000, moveSpheres, 0);
+   glutTimerFunc(100, moveSpheres, 0);
    glutMainLoop();
    return 0;
 }
